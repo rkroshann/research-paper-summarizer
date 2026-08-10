@@ -12,15 +12,19 @@ matching the "What the System Does" section of the project synopsis.
 import os
 import json
 import re
-import anthropic
+import concurrent.futures
+from g4f.client import Client
 
-MODEL = "claude-3-5-sonnet-20241022"
+MODEL = "gpt-4o"  # g4f will automatically route to a provider supporting this
 
 SYSTEM_PROMPT = """You are a research paper summarization assistant.
-Given the extracted text of a scientific paper, produce a structured,
-faithful, extreme summary. Do not invent information that is not
-present in the text. If a section (e.g. results) is not present,
-say "Not clearly stated in the provided text" for that field.
+Given the extracted text of a scientific paper, produce a deeply comprehensive,
+standalone explanation of the paper. Your summary should be detailed enough that
+a reader can fully understand the research without reading the original paper.
+Do not invent information. If a section is missing, state it clearly.
+
+You must also generate a Mermaid.js flowchart (graph TD) that visually maps
+the core concepts, methodology, or architecture described in the paper.
 
 Respond ONLY with valid JSON in exactly this shape, no extra prose,
 no markdown fences:
@@ -28,10 +32,11 @@ no markdown fences:
 {
   "title": "string or null if not identifiable",
   "one_line_summary": "single sentence TL;DR",
-  "objectives": "what problem the paper addresses and its goals",
-  "methodology": "the approach / method / model used",
-  "key_findings": "the main results, in plain language",
-  "conclusions": "what the authors conclude, limitations, future work if mentioned"
+  "objectives": "Deep, comprehensive explanation of the problem and goals",
+  "methodology": "Deep, comprehensive explanation of the approach/method/model",
+  "key_findings": "Deep, comprehensive explanation of the main results",
+  "conclusions": "Deep, comprehensive explanation of conclusions and limitations",
+  "flowchart": "graph TD;\\n A[Start] --> B[Step 1];\\n B --> C[End];"
 }
 """
 
@@ -84,49 +89,51 @@ def extract_fallback_summary(preprocessed_text: str) -> dict:
         "methodology": methodology,
         "key_findings": findings,
         "conclusions": conclusions,
+        "flowchart": "graph TD;\n  A[PDF Uploaded] --> B[Text Extraction];\n  B --> C[NLP Processing];\n  C --> D[Fallback Summarizer];\n  D --> E[Results Displayed];",
     }
 
 
-def get_client() -> anthropic.Anthropic:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return None
-    return anthropic.Anthropic(api_key=api_key)
+def get_client():
+    return Client()
 
 
 def summarize_paper(preprocessed_text: str) -> dict:
     """
-    Call the Anthropic API to generate a structured summary.
-    Falls back gracefully to NLP extraction if API key is not configured or API fails.
+    Call g4f (GPT4Free) API to generate a structured summary without an API key.
+    Falls back gracefully to NLP extraction if it fails.
     """
     client = get_client()
-    if not client:
-        return extract_fallback_summary(preprocessed_text)
 
     try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=1200,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Here is the extracted paper text:\n\n{preprocessed_text}",
-                }
-            ],
-        )
+        def fetch_summary():
+            return client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Here is the extracted paper text:\n\n{preprocessed_text}"},
+                ],
+            )
+            
+        # Run g4f with a 60 second timeout to allow large PDFs to process
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(fetch_summary)
+        try:
+            response = future.result(timeout=60)
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
-        raw_text = "".join(
-            block.text for block in response.content if block.type == "text"
-        )
+        raw_text = response.choices[0].message.content
 
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
             if cleaned.startswith("json\n"):
                 cleaned = cleaned[5:]
+            elif cleaned.startswith("json"):
+                cleaned = cleaned[4:]
 
-        return json.loads(cleaned)
+        return json.loads(cleaned.strip())
     except Exception as err:
         print(f"[Summarizer] API call failed ({err}). Using fallback NLP extraction.")
         return extract_fallback_summary(preprocessed_text)
+
