@@ -12,52 +12,47 @@ matching the "What the System Does" section of the project synopsis.
 import os
 import json
 import re
-import concurrent.futures
-from g4f.client import Client
+import requests
 
-MODEL = "gpt-4o"  # g4f will automatically route to a provider supporting this
+MODEL = "gemini-flash-latest"
 
 SYSTEM_PROMPT = """You are a research paper summarization assistant.
 Given the extracted text of a scientific paper, produce a deeply comprehensive,
-standalone explanation of the paper. Your summary should be detailed enough that
-a reader can fully understand the research without reading the original paper.
-Do not invent information. If a section is missing, state it clearly.
+professional summary. You must return ONLY a JSON object and absolutely nothing else.
+Do not wrap it in markdown blockquotes, do not include intro/outro text.
 
-You must also generate a Mermaid.js flowchart (graph TD) that visually maps
-the core concepts, methodology, or architecture described in the paper.
-
-Respond ONLY with valid JSON in exactly this shape, no extra prose,
-no markdown fences:
-
+The JSON MUST have these exact keys:
 {
-  "title": "string or null if not identifiable",
-  "one_line_summary": "single sentence TL;DR",
-  "objectives": "Deep, comprehensive explanation of the problem and goals",
-  "methodology": "Deep, comprehensive explanation of the approach/method/model",
-  "key_findings": "Deep, comprehensive explanation of the main results",
-  "conclusions": "Deep, comprehensive explanation of conclusions and limitations",
-  "flowchart": "graph TD;\\n A[Start] --> B[Step 1];\\n B --> C[End];"
+  "title": "Full title of the paper",
+  "one_line_summary": "An executive summary (1-2 sentences)",
+  "objectives": "The problem being solved (3-4 sentences)",
+  "methodology": "How they solved it (4-5 sentences)",
+  "key_findings": "The main results (4-5 sentences)",
+  "conclusions": "Conclusions and limitations (3-4 sentences)",
+  "flowchart": "A mermaid.js diagram script mapping the paper's specific proposed methodology."
 }
+
+Ensure the mermaid flowchart is valid syntax and captures the exact algorithm or system design proposed in this specific paper.
 """
 
 
 def extract_fallback_summary(preprocessed_text: str) -> dict:
-    """Extract a heuristic structured summary from preprocessed paper text when API key is absent or API fails."""
-    sections = {}
+    """
+    Very basic string matching fallback if API completely fails.
+    """
+    sections = {"abstract": "", "introduction": "", "method": "", "result": "", "conclusion": "", "preamble": ""}
     current_sec = "preamble"
-    sections[current_sec] = []
-
     for line in preprocessed_text.split("\n"):
-        if line.startswith("## "):
-            current_sec = line[3:].strip().lower()
-            sections[current_sec] = []
-        else:
-            sections[current_sec].append(line)
+        low_line = line.lower()
+        if "abstract" in low_line and len(line) < 20: current_sec = "abstract"
+        elif "introduction" in low_line and len(line) < 20: current_sec = "introduction"
+        elif "method" in low_line and len(line) < 30: current_sec = "method"
+        elif "result" in low_line and len(line) < 20: current_sec = "result"
+        elif "conclusion" in low_line and len(line) < 20: current_sec = "conclusion"
+        
+        sections[current_sec] += line + "\n"
 
-    for k in sections:
-        sections[k] = "\n".join(sections[k]).strip()
-
-    title = None
+    title = "Unknown Title"
     preamble_lines = [l for l in sections.get("preamble", "").split("\n") if l.strip()]
     if preamble_lines:
         title = preamble_lines[0]
@@ -93,36 +88,32 @@ def extract_fallback_summary(preprocessed_text: str) -> dict:
     }
 
 
-def get_client():
-    return Client()
-
+def get_api_key():
+    return os.environ.get("GEMINI_API_KEY")
 
 def summarize_paper(preprocessed_text: str) -> dict:
     """
-    Call g4f (GPT4Free) API to generate a structured summary without an API key.
+    Call Google Gemini REST API to generate a structured summary.
     Falls back gracefully to NLP extraction if it fails.
     """
-    client = get_client()
+    api_key = get_api_key()
+    if not api_key:
+        return extract_fallback_summary(preprocessed_text)
 
     try:
-        def fetch_summary():
-            return client.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Here is the extracted paper text:\n\n{preprocessed_text}"},
-                ],
-            )
-            
-        # Run g4f with a 60 second timeout to allow large PDFs to process
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(fetch_summary)
-        try:
-            response = future.result(timeout=60)
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
-
-        raw_text = response.choices[0].message.content
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{
+                "parts": [{"text": f"{SYSTEM_PROMPT}\n\nHere is the extracted paper text:\n\n{preprocessed_text}"}]
+            }]
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        
+        data = response.json()
+        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
 
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
