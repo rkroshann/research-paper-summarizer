@@ -14,7 +14,7 @@ import json
 import re
 import requests
 
-MODEL = "gemini-flash-latest"
+MODEL = "gemini-3.5-flash"
 
 SYSTEM_PROMPT = """You are a research paper summarization assistant.
 Given the extracted text of a scientific paper, produce a deeply comprehensive,
