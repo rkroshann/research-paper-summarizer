@@ -6,6 +6,8 @@ import gsap from "gsap";
 import ParticleBackground from "@/components/canvas/ParticleBackground";
 import { Upload, CheckCircle, BrainCircuit } from "lucide-react";
 import MermaidChart from "@/components/ui/MermaidChart";
+import PaperChat from "@/components/ui/PaperChat";
+import PodcastPlayer from "@/components/ui/PodcastPlayer";
 
 const MOCK_FLOWCHART = `graph TD;
   A[Input Research Paper] --> B[Text Extraction Engine];
@@ -71,7 +73,7 @@ export default function Home() {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFileSelect(e.dataTransfer.files[0]);
+      handleFileSelect(Array.from(e.dataTransfer.files));
     }
   };
 
@@ -91,44 +93,92 @@ export default function Home() {
     }, 1500);
   };
 
-  const handleFileSelect = async (selectedFile: File) => {
-    setFile(selectedFile);
+  const handleFileSelect = async (selectedFiles: File[]) => {
+    if (selectedFiles.length === 0) return;
+    setFile(selectedFiles[0]); // store the first one for single-view fallback
     setUploadState("uploading");
     
     const interval = animateLoadingText();
 
-    const formData = new FormData();
-    formData.append("file", selectedFile);
+    if (selectedFiles.length === 1) {
+      const formData = new FormData();
+      formData.append("file", selectedFiles[0]);
 
-    try {
-      // Attempt to fetch from real backend
-      const res = await fetch("http://localhost:5001/api/summarize", {
-        method: "POST",
-        body: formData,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-      if (!res.ok) throw new Error("API responded with an error");
+      try {
+        const res = await fetch("http://localhost:5001/api/summarize", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
 
-      const data = await res.json();
-      
-      setSummaryData(data.summary);
-      clearInterval(interval);
-      setUploadState("success");
+        if (!res.ok) throw new Error("API responded with an error");
+        const data = await res.json();
+        setSummaryData({ ...data.summary, session_id: data.session_id, visuals: data.visuals });
+        clearInterval(interval);
+        setUploadState("success");
+      } catch (err) {
+        clearTimeout(timeoutId);
+        console.warn("Backend not running or failed. Falling back to rich mock data.", err);
+        setSummaryData({
+          title: selectedFiles[0].name,
+          session_id: "mock_session",
+          one_line_summary: "This paper presents a breakthrough methodology that significantly outperforms prior baselines. (NOTE: Backend is offline, showing demo data)",
+          objectives: "The primary objective of this research is to solve the pervasive issue of data degradation in deep neural networks when scaling to extremely high dimensional spaces.",
+          methodology: "The researchers utilize a hybrid approach combining unsupervised contrastive learning with a novel dynamic routing mechanism.",
+          key_findings: "The proposed model achieved a 24% reduction in inference latency and improved the F1 score by 14 points on the benchmark datasets.",
+          conclusions: "The authors conclude that orthogonal subspace routing is a viable path forward for scaling large models efficiently.",
+          flowchart: MOCK_FLOWCHART,
+          visuals: [
+            {
+              url: "https://via.placeholder.com/600x400/101010/5EF2FF?text=Mock+Extracted+Figure",
+              caption: "Figure 1: Example Architecture from Demo",
+              context: "This image was extracted by the visual extraction engine."
+            }
+          ]
+        });
+        clearInterval(interval);
+        setUploadState("success");
+      }
+    } else {
+      // Multiple files
+      const formData = new FormData();
+      selectedFiles.forEach((f) => formData.append("files", f));
 
-    } catch (err) {
-      console.warn("Backend not running or failed. Falling back to rich mock data.", err);
-      // Fallback for demo purposes if backend isn't up
-      setSummaryData({
-        title: selectedFile.name,
-        one_line_summary: "This paper presents a breakthrough methodology that significantly outperforms prior baselines.",
-        objectives: "The primary objective of this research is to solve the pervasive issue of data degradation in deep neural networks when scaling to extremely high dimensional spaces. The authors aim to establish a framework that preserves signal integrity without introducing computational bottlenecks.",
-        methodology: "The researchers utilize a hybrid approach combining unsupervised contrastive learning with a novel dynamic routing mechanism. By splitting the latent space into orthogonal subspaces, the model can iteratively refine feature representations. The training was conducted on a cluster of H100s over a simulated dataset of 4 billion tokens.",
-        key_findings: "The proposed model achieved a 24% reduction in inference latency and improved the F1 score by 14 points on the benchmark datasets. It successfully demonstrated that dynamic routing is highly effective at filtering out stochastic noise in early layers.",
-        conclusions: "The authors conclude that orthogonal subspace routing is a viable path forward for scaling large models efficiently. Future work will focus on adapting this architecture to multimodal inputs and addressing minor instability observed during early epochs.",
-        flowchart: MOCK_FLOWCHART
-      });
-      clearInterval(interval);
-      setUploadState("success");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout for multiple files
+
+      try {
+        const res = await fetch("http://localhost:5001/api/knowledge-graph", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) throw new Error("API responded with an error");
+        const data = await res.json();
+        setSummaryData({ isMulti: true, graph: data.graph, summaries: data.summaries });
+        clearInterval(interval);
+        setUploadState("success");
+      } catch (err) {
+        clearTimeout(timeoutId);
+        console.warn("Backend not running or failed. Falling back to rich mock data.", err);
+        setSummaryData({ 
+          isMulti: true, 
+          graph: "graph TD;\n  A[Paper 1: Deep Learning] -->|Improves Upon| B[Paper 2: Neural Nets];\n  C[Paper 3: Transformers] -->|Extends| A;\n", 
+          summaries: selectedFiles.map((f, i) => ({
+            title: f.name,
+            one_line_summary: `Mock executive summary for ${f.name} (Backend is offline).`,
+            key_findings: "Simulated key findings showing a 15% increase in efficiency."
+          }))
+        });
+        clearInterval(interval);
+        setUploadState("success");
+      }
     }
   };
 
@@ -151,7 +201,7 @@ export default function Home() {
               </h1>
               
               <p className="hero-sub text-[clamp(16px,2vw,20px)] max-w-2xl mx-auto text-white/55 leading-relaxed tracking-tight">
-                Upload any research paper and receive deep, comprehensive explanations and visual methodology flowcharts generated by AI.
+                Upload one or multiple research papers and receive deep explanations and visual relationships generated by AI.
               </p>
 
               <div 
@@ -181,19 +231,20 @@ export default function Home() {
                       <Upload className={`w-12 h-12 ${isDragging ? "text-[#5EF2FF]" : "text-white/40"}`} />
                     </motion.div>
                     <div>
-                      <p className="text-xl font-medium tracking-tight">Drag and drop your paper here</p>
-                      <p className="text-white/40 mt-2 text-sm">Or click to browse files (PDF only)</p>
+                      <p className="text-xl font-medium tracking-tight">Drag and drop your paper(s) here</p>
+                      <p className="text-white/40 mt-2 text-sm">Upload multiple PDFs to generate a knowledge graph</p>
                     </div>
                     
                     <label className="mt-4 px-8 py-4 rounded-full bg-white text-black font-semibold tracking-tight cursor-pointer hover:bg-white/90 transition-colors z-20">
-                      Upload Paper
+                      Upload Paper(s)
                       <input 
                         type="file" 
                         className="hidden" 
                         accept=".pdf"
+                        multiple
                         onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            handleFileSelect(e.target.files[0]);
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleFileSelect(Array.from(e.target.files));
                           }
                         }}
                       />
@@ -238,58 +289,132 @@ export default function Home() {
             transition={{ duration: 1.2, ease: "easeOut" }}
           >
             <div className="max-w-7xl mx-auto space-y-24">
-              {/* Header */}
-              <div className="space-y-8 max-w-3xl">
-                <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-sm tracking-widest text-[#5EF2FF] uppercase">
-                  <CheckCircle className="w-4 h-4" /> AI Analysis Complete
-                </div>
-                <h2 className="text-5xl font-bold tracking-tighter leading-tight">{summaryData.title || file?.name || "Paper Summary"}</h2>
-                
-                <div className="p-8 rounded-2xl border border-white/10 bg-[#0B0B0B] shadow-2xl shadow-[#5EF2FF]/5 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-8 opacity-10">
-                    <BrainCircuit className="w-32 h-32" />
+              {summaryData.isMulti ? (
+                <>
+                  <div className="space-y-8 max-w-3xl">
+                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-sm tracking-widest text-[#5EF2FF] uppercase">
+                      <CheckCircle className="w-4 h-4" /> Multi-Paper Analysis Complete
+                    </div>
+                    <h2 className="text-5xl font-bold tracking-tighter leading-tight">Knowledge Graph</h2>
+                    <p className="text-white/60 text-lg">Relationship mapping across {summaryData.summaries?.length} uploaded papers.</p>
                   </div>
-                  <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase mb-4 relative z-10">Executive Summary</h3>
-                  <p className="text-xl leading-relaxed text-white/90 relative z-10 font-light">
-                    {summaryData.one_line_summary}
-                  </p>
-                </div>
-              </div>
 
-              {/* Grid Content */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                {[
-                  { id: "objectives", label: "Objectives & Problem Statement" },
-                  { id: "methodology", label: "Methodology & Approach" },
-                  { id: "key_findings", label: "Key Findings & Results" },
-                  { id: "conclusions", label: "Conclusions & Limitations" }
-                ].map((section, idx) => (
-                  <motion.div 
-                    key={section.id}
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.8, delay: idx * 0.15 + 0.5 }}
-                    className="p-8 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors"
-                  >
-                    <h3 className="text-xs tracking-[0.2em] text-[#5EF2FF]/70 uppercase mb-6">{section.label}</h3>
-                    <p className="text-white/80 leading-loose text-md font-light">
-                      {summaryData[section.id] || "Not provided in this analysis."}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {summaryData.summaries?.map((sum: any, idx: number) => (
+                      <motion.div 
+                        key={idx}
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.8, delay: idx * 0.15 }}
+                        className="p-6 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors flex flex-col gap-4"
+                      >
+                        <h3 className="text-lg font-bold text-[#5EF2FF] truncate" title={sum.title}>{sum.title}</h3>
+                        <p className="text-sm text-white/80 leading-relaxed">{sum.one_line_summary}</p>
+                        <div className="mt-auto pt-4 border-t border-white/5">
+                          <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Key Findings</p>
+                          <p className="text-sm text-white/70 line-clamp-3">{sum.key_findings}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
 
-              {/* Flowchart Section */}
-              {summaryData.flowchart && (
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.8, delay: 1.2 }}
-                  className="space-y-6 pt-12 border-t border-white/10"
-                >
-                  <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center">Visual Methodology Flowchart</h3>
-                  <MermaidChart chart={summaryData.flowchart} />
-                </motion.div>
+                  {summaryData.graph && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.8, delay: 0.8 }}
+                      className="space-y-6 pt-12 border-t border-white/10"
+                    >
+                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center">Inter-Paper Relationships</h3>
+                      <div className="p-8 rounded-2xl border border-white/10 bg-[#0B0B0B] overflow-x-auto">
+                        <MermaidChart chart={summaryData.graph} />
+                      </div>
+                    </motion.div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Header */}
+                  <div className="space-y-8 max-w-3xl">
+                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-sm tracking-widest text-[#5EF2FF] uppercase">
+                      <CheckCircle className="w-4 h-4" /> AI Analysis Complete
+                    </div>
+                    <h2 className="text-5xl font-bold tracking-tighter leading-tight">{summaryData.title || file?.name || "Paper Summary"}</h2>
+                    
+                    {summaryData.session_id && (
+                      <PodcastPlayer sessionId={summaryData.session_id} />
+                    )}
+                    
+                    <div className="p-8 rounded-2xl border border-white/10 bg-[#0B0B0B] shadow-2xl shadow-[#5EF2FF]/5 relative overflow-hidden mt-8">
+                      <div className="absolute top-0 right-0 p-8 opacity-10">
+                        <BrainCircuit className="w-32 h-32" />
+                      </div>
+                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase mb-4 relative z-10">Executive Summary</h3>
+                      <p className="text-xl leading-relaxed text-white/90 relative z-10 font-light">
+                        {summaryData.one_line_summary}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Grid Content */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                    {[
+                      { id: "objectives", label: "Objectives & Problem Statement" },
+                      { id: "methodology", label: "Methodology & Approach" },
+                      { id: "key_findings", label: "Key Findings & Results" },
+                      { id: "conclusions", label: "Conclusions & Limitations" }
+                    ].map((section, idx) => (
+                      <motion.div 
+                        key={section.id}
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.8, delay: idx * 0.15 + 0.5 }}
+                        className="p-8 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors"
+                      >
+                        <h3 className="text-xs tracking-[0.2em] text-[#5EF2FF]/70 uppercase mb-6">{section.label}</h3>
+                        <p className="text-white/80 leading-loose text-md font-light">
+                          {summaryData[section.id] || "Not provided in this analysis."}
+                        </p>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {summaryData.visuals && summaryData.visuals.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.8, delay: 1.0 }}
+                      className="space-y-6 pt-12 border-t border-white/10"
+                    >
+                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center mb-8">Extracted Visuals</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {summaryData.visuals.map((visual: any, idx: number) => (
+                          <div key={idx} className="bg-white/5 rounded-2xl p-4 border border-white/10 flex flex-col items-center">
+                            <img src={`http://localhost:5001${visual.url}`} alt={`Extracted visual ${idx}`} className="max-h-64 object-contain rounded-xl mb-4" />
+                            <p className="text-xs text-white/50 text-center">{visual.caption}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Flowchart Section */}
+                  {summaryData.flowchart && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.8, delay: 1.2 }}
+                      className="space-y-6 pt-12 border-t border-white/10"
+                    >
+                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center">Visual Methodology Flowchart</h3>
+                      <MermaidChart chart={summaryData.flowchart} />
+                    </motion.div>
+                  )}
+
+                  {summaryData.session_id && (
+                    <PaperChat sessionId={summaryData.session_id} />
+                  )}
+                </>
               )}
             </div>
           </motion.div>

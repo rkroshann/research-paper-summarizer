@@ -20,3 +20,5 @@ backend/__pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+backend/static/
+backend/test.pdf

@@ -5,3 +5,8 @@ nltk==3.9.1
 anthropic==0.34.2
 python-dotenv==1.0.1
 werkzeug==3.0.4
+PyMuPDF==1.24.1
+faiss-cpu==1.8.0
+sentence-transformers==2.7.0
+gTTS==2.5.1
+numpy==1.26.4

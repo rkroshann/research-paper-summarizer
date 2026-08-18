@@ -51,6 +51,14 @@ export default function MermaidChart({ chart }: MermaidChartProps) {
     };
   }, [chart]);
 
+  if (chart.includes("No strong relationships were identified")) {
+    return (
+      <div className="flex justify-center w-full overflow-x-auto p-4 rounded-xl bg-[#050505]/50 border border-white/5">
+        <p className="text-white/60 p-4">{chart}</p>
+      </div>
+    );
+  }
+
   return (
     <div 
       className="mermaid flex justify-center w-full overflow-x-auto p-4 rounded-xl bg-[#050505]/50 border border-white/5" 
