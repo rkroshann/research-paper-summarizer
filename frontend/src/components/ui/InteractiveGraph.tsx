@@ -10,19 +10,21 @@ const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false 
 
 interface GraphData {
   nodes: { id: string; label: string; group?: string; color?: string }[];
-  edges: { source: string; target: string; label: string; type: string; color?: string }[];
+  edges?: { source: string; target: string; label: string; type: string; color?: string }[];
+  links?: { source: string; target: string; label: string; type: string; color?: string }[];
 }
 
 export default function InteractiveGraph({ data, sessionId }: { data: GraphData | null, sessionId: string }) {
-  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
+  const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
   const [selectedItem, setSelectedItem] = useState<{ type: "node" | "edge"; data: any } | null>(null);
   const [search, setSearch] = useState("");
-  const fgRef = useRef<any>();
+  const fgRef = useRef<any>(null);
 
   useEffect(() => {
     if (data && data.nodes) {
       // Add colors based on edge types
-      const styledEdges = data.edges.map(e => {
+      const rawEdges = data.edges || data.links || [];
+      const styledEdges = rawEdges.map(e => {
         let color = "#5EF2FF";
         let lineDash = undefined;
         if (e.type === "contradiction") color = "#FF5E5E";
@@ -36,7 +38,7 @@ export default function InteractiveGraph({ data, sessionId }: { data: GraphData 
         color: "#ffffff"
       }));
 
-      setGraphData({ nodes: styledNodes, edges: styledEdges });
+      setGraphData({ nodes: styledNodes, links: styledEdges });
     }
   }, [data]);
 
