@@ -57,3 +57,16 @@ html.lenis, html.lenis body {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
+
+
+@layer utilities {
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+}

@@ -239,6 +239,10 @@ def knowledge_graph():
     summaries = []
 
     try:
+        # Create a session for this graph workspace
+        session_id = create_session()
+        all_chunks = []
+        
         for file in files:
             if not allowed_file(file.filename):
                 continue
@@ -254,20 +258,160 @@ def knowledge_graph():
                 "key_findings": summary.get("key_findings", "")
             })
             
-            # Save summary to return to user so they don't have to upload again
             summary["title"] = file.filename
             summaries.append(summary)
+            
+            # Chunking for GraphRAG
+            paper_chunks = chunk_text(extracted["pages"])
+            # Prefix chunks with paper title
+            for c in paper_chunks:
+                c["text"] = f"[Paper: {file.filename}] " + c["text"]
+            all_chunks.extend(paper_chunks)
 
-        graph_str = generate_multi_paper_graph(papers_data)
+        graph_data = generate_multi_paper_graph(papers_data)
+        
+        # Save GraphRAG data to session
+        update_session(session_id, "chunks", all_chunks)
+        try:
+            embeddings = generate_embeddings(all_chunks)
+            update_session(session_id, "embeddings", embeddings)
+        except Exception as emb_err:
+            print(f"[GraphRAG] Failed to generate embeddings: {emb_err}")
 
         return jsonify({
-            "graph": graph_str,
+            "session_id": session_id,
+            "graph": graph_data,
             "summaries": summaries
         })
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": "Failed to generate knowledge graph."}), 500
 
+@app.route("/api/graph-chat", methods=["POST"])
+def graph_chat():
+    """
+    GraphRAG chat endpoint. 
+    Expects JSON: { "session_id": "...", "message": "...", "paper_a": "...", "paper_b": "..." }
+    """
+    data = request.json or {}
+    session_id = data.get("session_id")
+    message = data.get("message")
+    paper_a = data.get("paper_a")
+    paper_b = data.get("paper_b")
+
+    if not session_id or not message:
+        return jsonify({"error": "Missing session_id or message"}), 400
+
+    session_data = get_session(session_id)
+    if not session_data or not session_data.get("chunks"):
+        return jsonify({"error": "Invalid session or missing RAG data"}), 404
+
+    chunks = session_data["chunks"]
+    embeddings = session_data.get("embeddings")
+    
+    # Simple semantic search using existing RAG engine
+    try:
+        from services.rag_engine import retrieve_relevant_chunks
+        from services.summarizer import get_api_key
+        
+        # Modify the query to heavily favor the specific papers if provided
+        query_modifier = ""
+        if paper_a and paper_b:
+            query_modifier = f" Focus specifically on {paper_a} and {paper_b}."
+        
+        relevant_chunks = retrieve_relevant_chunks(message + query_modifier, chunks, embeddings, top_k=6)
+        
+        context_text = "\n\n".join([f"{c['text']}" for c in relevant_chunks])
+        
+        prompt = f"""You are an expert academic research assistant analyzing a knowledge graph connection.
+Use ONLY the provided context excerpts to answer the question. Do not hallucinate.
+When citing, cite the specific [Paper: Title] and [Source: Page X] from the excerpts.
+
+CONTEXT EXCERPTS:
+{context_text}
+
+USER QUESTION:
+{message}
+"""
+        api_key = get_api_key()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+        res = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]})
+        res.raise_for_status()
+        answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        
+        return jsonify({"answer": answer})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "Failed to generate answer."}), 500
+
+from services.presentation_generator import generate_presentation
+
+@app.route("/api/presentation", methods=["POST"])
+def presentation():
+    """
+    Generates a presentation deck based on the session's summary and text.
+    Expects JSON: { "session_id": "..." }
+    """
+    data = request.json or {}
+    session_id = data.get("session_id")
+    if not session_id:
+        return jsonify({"error": "Missing session_id"}), 400
+
+    session_data = get_session(session_id)
+    if not session_data:
+        return jsonify({"error": "Invalid or expired session"}), 404
+
+    # Check if already generated
+    if session_data.get("presentation"):
+        return jsonify({"slides": session_data["presentation"]})
+
+    summary = session_data.get("summary")
+    text = session_data.get("text")
+    visuals = session_data.get("visuals", [])
+
+    if not summary or not text:
+        return jsonify({"error": "Summary or text not available yet"}), 400
+
+    try:
+        slides = generate_presentation(summary, text, visuals)
+        update_session(session_id, "presentation", slides)
+        return jsonify({"slides": slides})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "Failed to generate presentation."}), 500
+
+from services.flashcard_generator import generate_flashcards
+
+@app.route("/api/flashcards", methods=["POST"])
+def flashcards():
+    """
+    Generates study flashcards based on the session's summary and text.
+    """
+    data = request.json or {}
+    session_id = data.get("session_id")
+    if not session_id:
+        return jsonify({"error": "Missing session_id"}), 400
+
+    session_data = get_session(session_id)
+    if not session_data:
+        return jsonify({"error": "Invalid or expired session"}), 404
+
+    if session_data.get("flashcards"):
+        return jsonify({"flashcards": session_data["flashcards"]})
+
+    summary = session_data.get("summary")
+    chunks = session_data.get("chunks", [])
+
+    if not summary or not chunks:
+        return jsonify({"error": "Data not available yet"}), 400
+
+    try:
+        cards = generate_flashcards(summary, chunks)
+        update_session(session_id, "flashcards", cards)
+        return jsonify({"flashcards": cards})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "Failed to generate flashcards."}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))

@@ -4,10 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import gsap from "gsap";
 import ParticleBackground from "@/components/canvas/ParticleBackground";
-import { Upload, CheckCircle, BrainCircuit } from "lucide-react";
+import { Upload, CheckCircle, BrainCircuit, LayoutDashboard, Presentation as PresentationIcon, BookOpen, Network } from "lucide-react";
 import MermaidChart from "@/components/ui/MermaidChart";
 import PaperChat from "@/components/ui/PaperChat";
 import PodcastPlayer from "@/components/ui/PodcastPlayer";
+import PresentationViewer from "@/components/ui/PresentationViewer";
+import InteractiveGraph from "@/components/ui/InteractiveGraph";
+import StudyMode from "@/components/ui/StudyMode";
 
 const MOCK_FLOWCHART = `graph TD;
   A[Input Research Paper] --> B[Text Extraction Engine];
@@ -30,6 +33,7 @@ export default function Home() {
   const [loadingText, setLoadingText] = useState("Reading...");
   const [errorMsg, setErrorMsg] = useState("");
   const [summaryData, setSummaryData] = useState<any>(null);
+  const [currentTab, setCurrentTab] = useState<"overview" | "presentation" | "study" | "graph">("overview");
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -299,36 +303,51 @@ export default function Home() {
                     <p className="text-white/60 text-lg">Relationship mapping across {summaryData.summaries?.length} uploaded papers.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {summaryData.summaries?.map((sum: any, idx: number) => (
-                      <motion.div 
-                        key={idx}
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: idx * 0.15 }}
-                        className="p-6 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors flex flex-col gap-4"
+                  <div className="flex justify-center mb-8 border-b border-white/10">
+                    <div className="flex gap-8">
+                      <button 
+                        onClick={() => setCurrentTab("overview")} 
+                        className={`pb-4 text-sm font-semibold tracking-wider transition-all ${currentTab === "overview" ? "text-[#5EF2FF] border-b-2 border-[#5EF2FF]" : "text-white/50 hover:text-white"}`}
                       >
-                        <h3 className="text-lg font-bold text-[#5EF2FF] truncate" title={sum.title}>{sum.title}</h3>
-                        <p className="text-sm text-white/80 leading-relaxed">{sum.one_line_summary}</p>
-                        <div className="mt-auto pt-4 border-t border-white/5">
-                          <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Key Findings</p>
-                          <p className="text-sm text-white/70 line-clamp-3">{sum.key_findings}</p>
-                        </div>
-                      </motion.div>
-                    ))}
+                        OVERVIEW
+                      </button>
+                      <button 
+                        onClick={() => setCurrentTab("graph")} 
+                        className={`pb-4 text-sm font-semibold tracking-wider transition-all ${currentTab === "graph" ? "text-[#5EF2FF] border-b-2 border-[#5EF2FF]" : "text-white/50 hover:text-white"}`}
+                      >
+                        KNOWLEDGE GRAPH
+                      </button>
+                    </div>
                   </div>
 
-                  {summaryData.graph && (
+                  {currentTab === "overview" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                      {summaryData.summaries?.map((sum: any, idx: number) => (
+                        <motion.div 
+                          key={idx}
+                          initial={{ opacity: 0, y: 30 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.8, delay: idx * 0.15 }}
+                          className="p-6 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors flex flex-col gap-4"
+                        >
+                          <h3 className="text-lg font-bold text-[#5EF2FF] truncate" title={sum.title}>{sum.title}</h3>
+                          <p className="text-sm text-white/80 leading-relaxed">{sum.one_line_summary}</p>
+                          <div className="mt-auto pt-4 border-t border-white/5">
+                            <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Key Findings</p>
+                            <p className="text-sm text-white/70 line-clamp-3">{sum.key_findings}</p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+
+                  {currentTab === "graph" && summaryData.graph && (
                     <motion.div
                       initial={{ opacity: 0, y: 30 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.8, delay: 0.8 }}
-                      className="space-y-6 pt-12 border-t border-white/10"
+                      transition={{ duration: 0.8 }}
                     >
-                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center">Inter-Paper Relationships</h3>
-                      <div className="p-8 rounded-2xl border border-white/10 bg-[#0B0B0B] overflow-x-auto">
-                        <MermaidChart chart={summaryData.graph} />
-                      </div>
+                      <InteractiveGraph data={summaryData.graph} sessionId={summaryData.session_id} />
                     </motion.div>
                   )}
                 </>
@@ -356,59 +375,89 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Grid Content */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                    {[
-                      { id: "objectives", label: "Objectives & Problem Statement" },
-                      { id: "methodology", label: "Methodology & Approach" },
-                      { id: "key_findings", label: "Key Findings & Results" },
-                      { id: "conclusions", label: "Conclusions & Limitations" }
-                    ].map((section, idx) => (
-                      <motion.div 
-                        key={section.id}
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: idx * 0.15 + 0.5 }}
-                        className="p-8 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors"
-                      >
-                        <h3 className="text-xs tracking-[0.2em] text-[#5EF2FF]/70 uppercase mb-6">{section.label}</h3>
-                        <p className="text-white/80 leading-loose text-md font-light">
-                          {summaryData[section.id] || "Not provided in this analysis."}
-                        </p>
-                      </motion.div>
-                    ))}
+                  <div className="flex justify-center mt-12 mb-8 border-b border-white/10 sticky top-0 bg-[#000000]/80 backdrop-blur-xl z-40 py-4">
+                    <div className="flex gap-4 sm:gap-8 overflow-x-auto px-4 no-scrollbar">
+                      {[
+                        { id: "overview", label: "Overview", icon: LayoutDashboard },
+                        { id: "presentation", label: "Presentation", icon: PresentationIcon },
+                        { id: "study", label: "Study Mode", icon: BookOpen }
+                      ].map(tab => (
+                        <button 
+                          key={tab.id}
+                          onClick={() => setCurrentTab(tab.id as any)} 
+                          className={`flex items-center gap-2 pb-4 text-sm font-semibold tracking-wider transition-all whitespace-nowrap ${currentTab === tab.id ? "text-[#5EF2FF] border-b-2 border-[#5EF2FF]" : "text-white/50 hover:text-white"}`}
+                        >
+                          <tab.icon className="w-4 h-4" /> {tab.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {summaryData.visuals && summaryData.visuals.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 30 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.8, delay: 1.0 }}
-                      className="space-y-6 pt-12 border-t border-white/10"
-                    >
-                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center mb-8">Extracted Visuals</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        {summaryData.visuals.map((visual: any, idx: number) => (
-                          <div key={idx} className="bg-white/5 rounded-2xl p-4 border border-white/10 flex flex-col items-center">
-                            <img src={`http://localhost:5001${visual.url}`} alt={`Extracted visual ${idx}`} className="max-h-64 object-contain rounded-xl mb-4" />
-                            <p className="text-xs text-white/50 text-center">{visual.caption}</p>
-                          </div>
+                  {currentTab === "overview" && (
+                    <>
+                      {/* Grid Content */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                        {[
+                          { id: "objectives", label: "Objectives & Problem Statement" },
+                          { id: "methodology", label: "Methodology & Approach" },
+                          { id: "key_findings", label: "Key Findings & Results" },
+                          { id: "conclusions", label: "Conclusions & Limitations" }
+                        ].map((section, idx) => (
+                          <motion.div 
+                            key={section.id}
+                            initial={{ opacity: 0, y: 30 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.8, delay: idx * 0.15 }}
+                            className="p-8 rounded-2xl border border-white/10 bg-[#101010] hover:bg-white/[0.03] transition-colors"
+                          >
+                            <h3 className="text-xs tracking-[0.2em] text-[#5EF2FF]/70 uppercase mb-6">{section.label}</h3>
+                            <p className="text-white/80 leading-loose text-md font-light">
+                              {summaryData[section.id] || "Not provided in this analysis."}
+                            </p>
+                          </motion.div>
                         ))}
                       </div>
-                    </motion.div>
+
+                      {summaryData.visuals && summaryData.visuals.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 30 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.8 }}
+                          className="space-y-6 pt-12 border-t border-white/10"
+                        >
+                          <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center mb-8">Extracted Visuals</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            {summaryData.visuals.map((visual: any, idx: number) => (
+                              <div key={idx} className="bg-white/5 rounded-2xl p-4 border border-white/10 flex flex-col items-center">
+                                <img src={`http://localhost:5001${visual.url}`} alt={`Extracted visual ${idx}`} className="max-h-64 object-contain rounded-xl mb-4" />
+                                <p className="text-xs text-white/50 text-center">{visual.caption}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* Flowchart Section */}
+                      {summaryData.flowchart && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 30 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.8 }}
+                          className="space-y-6 pt-12 border-t border-white/10"
+                        >
+                          <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center">Visual Methodology Flowchart</h3>
+                          <MermaidChart chart={summaryData.flowchart} />
+                        </motion.div>
+                      )}
+                    </>
                   )}
 
-                  {/* Flowchart Section */}
-                  {summaryData.flowchart && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 30 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.8, delay: 1.2 }}
-                      className="space-y-6 pt-12 border-t border-white/10"
-                    >
-                      <h3 className="text-xs tracking-[0.2em] text-[#8A6DFF] uppercase text-center">Visual Methodology Flowchart</h3>
-                      <MermaidChart chart={summaryData.flowchart} />
-                    </motion.div>
+                  {currentTab === "presentation" && (
+                    <PresentationViewer sessionId={summaryData.session_id} visuals={summaryData.visuals || []} />
+                  )}
+
+                  {currentTab === "study" && (
+                    <StudyMode sessionId={summaryData.session_id} />
                   )}
 
                   {summaryData.session_id && (

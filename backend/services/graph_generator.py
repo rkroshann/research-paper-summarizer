@@ -28,10 +28,20 @@ Your task is to analyze them and create a knowledge graph showing the relationsh
 Relationships can be: Improves upon, Builds upon, Uses same dataset, Similar methodology, Supports, Contradicts, Extends, or Cites.
 
 CRITICAL RULES:
-1. Output ONLY a valid Mermaid.js graph string (starting with 'graph TD;' or 'graph LR;'). Do not wrap it in markdown code blocks.
-2. SANITIZE LABELS: You must sanitize all node labels. Remove or replace colons (:), ampersands (&), quotes (", '), parentheses, slashes (/), and newlines in node labels, as these will break Mermaid syntax. Keep labels extremely concise.
-3. NO RELATIONSHIPS: If there are absolutely no meaningful relationships between the papers, output EXACTLY the following text and nothing else:
-No strong relationships were identified between these papers.
+1. Output ONLY valid JSON representing the graph, and nothing else. No markdown wrappers.
+2. If there are no meaningful relationships, output an empty JSON object: {{}}
+
+REQUIRED JSON STRUCTURE:
+{{
+  "nodes": [
+    {{ "id": "1", "label": "Paper 1 Title", "group": "paper" }}
+  ],
+  "edges": [
+    {{ "source": "1", "target": "2", "label": "Contradicts", "type": "contradiction" }}
+  ]
+}}
+
+Types of edges (use exactly one): citation, similarity, contradiction, extension, generic.
 
 PAPER SUMMARIES:
 {context}
@@ -48,6 +58,13 @@ PAPER SUMMARIES:
     graph_str = res_data["candidates"][0]["content"]["parts"][0]["text"]
     
     # Clean up if the model wrapped it in markdown anyway
-    graph_str = graph_str.replace("```mermaid", "").replace("```", "").strip()
+    graph_str = graph_str.replace("```json", "").replace("```", "").strip()
     
-    return graph_str
+    try:
+        import json
+        graph_data = json.loads(graph_str)
+        return graph_data
+    except Exception as e:
+        print("[Graph Generator] Failed to parse JSON:", e)
+        return {}
+
